@@ -1,4 +1,4 @@
-import { DASH_RULES, dashContact, dashDimensions, dashLaunch, finiteDashVector, type DashImpact, type DashPose, type DashVector } from '../../shared/dash';
+import { DASH_RULES, dashContact, dashDimensions, dashLaunch, finiteDashVector, type DashImpact, type DashPose, type DashVector } from '../shared/dash';
 interface Combatant { entityId: string; vehicleId: string; teamId?: string; connected: boolean; health: number; protectedUntil: number }
 interface PoseSample { pose: DashPose; at: number }
 

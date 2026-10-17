@@ -5,7 +5,7 @@ import { io } from 'socket.io-client';
 
 const port = 3197;
 const secret = 'tdm-test-secret';
-const server = spawn(process.execPath, ['dist/server/src/index.js'], {
+const server = spawn(process.execPath, ['dist/src/index.js'], {
     cwd: process.cwd(),
     env: { ...process.env, PORT: String(port), JWT_SECRET: secret },
     stdio: ['ignore', 'pipe', 'pipe'],

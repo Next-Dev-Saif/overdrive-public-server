@@ -16,7 +16,7 @@ import {
     type MatchMember,
     type MatchSnapshot,
     type TeamId,
-} from '../../shared/match';
+} from '../shared/match';
 
 const app = express();
 app.disable('x-powered-by');

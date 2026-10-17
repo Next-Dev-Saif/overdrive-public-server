@@ -1,6 +1,6 @@
 import type { Server, Socket } from 'socket.io';
-import { createPickups, createRacer, NEUTRAL_INPUT, recoverRacer, stepRace } from '../../shared/race/simulation';
-import { RACE_RULES, type RaceInput, type RaceSnapshot } from '../../shared/race/types';
+import { createPickups, createRacer, NEUTRAL_INPUT, recoverRacer, stepRace } from '../shared/race/simulation';
+import { RACE_RULES, type RaceInput, type RaceSnapshot } from '../shared/race/types';
 
 interface Session { state: RaceSnapshot; inputs: Map<string, RaceInput>; ready: Set<string>; lastInput: Map<string, number>; loadingDeadline: number; finishedAt: number }
 /** Separate queue and server simulation; clients can submit controls, never positions, laps, hits or pickup claims. */
