@@ -11,7 +11,7 @@
  */
 
 import { Client, Databases, ID, Query, DatabasesIndexType } from 'node-appwrite';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from 'dotenv';
@@ -19,9 +19,10 @@ import { config } from 'dotenv';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const root = resolve(__dirname, '..');
+const envPath = resolve(root, '.env');
 
 // Load environment variables from server/.env
-config({ path: resolve(root, '.env') });
+config({ path: envPath });
 
 const endpoint = (process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1').trim();
 const projectId = (process.env.APPWRITE_PROJECT_ID || '').trim();
@@ -44,7 +45,7 @@ console.log('====================================================');
 console.log(`Endpoint:    ${endpoint}`);
 console.log(`Project ID:  ${projectId || '(not set)'}`);
 console.log(`Database ID: ${databaseId}`);
-console.log(`API Key:     ${apiKey ? apiKey.slice(0, 8) + '...' : '(not set)'}`);
+console.log(`API Key:     ${apiKey ? apiKey.slice(0, 12) + '...' : '(not set)'}`);
 console.log('----------------------------------------------------');
 
 if (!projectId || !apiKey) {
@@ -52,7 +53,7 @@ if (!projectId || !apiKey) {
     console.error('Please open server/.env and set:');
     console.error('  APPWRITE_PROJECT_ID=your-project-id');
     console.error('  APPWRITE_API_KEY=your-secret-api-key');
-    console.error('  APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1 (or your self-hosted URL)\n');
+    console.error('  APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1\n');
     process.exit(1);
 }
 
@@ -68,7 +69,7 @@ const sleep = ms => new Promise(res => setTimeout(res, ms));
 async function ensureDatabase() {
     try {
         await databases.get(databaseId);
-        console.log(`✔ Database "${databaseId}" already exists.`);
+        console.log(`✔ Database "${databaseId}" exists.`);
     } catch (err) {
         if (err?.code === 404) {
             console.log(`Creating database "${databaseId}"...`);
@@ -80,18 +81,38 @@ async function ensureDatabase() {
     }
 }
 
-async function ensureCollection(collId, name) {
+/**
+ * Resolves collection by ID or case-insensitive name. Creates if missing.
+ */
+async function ensureCollection(collKey, displayName) {
+    const preferredIdOrName = collections[collKey];
     try {
-        await databases.getCollection(databaseId, collId);
-        console.log(`✔ Collection "${name}" (${collId}) exists.`);
-    } catch (err) {
-        if (err?.code === 404) {
-            console.log(`Creating collection "${name}" (${collId})...`);
-            await databases.createCollection(databaseId, collId, name);
-            console.log(`✔ Collection "${name}" created.`);
-        } else {
-            throw err;
+        const list = await databases.listCollections(databaseId);
+        const match = list.collections.find(c =>
+            c.$id === preferredIdOrName ||
+            c.name.toLowerCase() === displayName.toLowerCase() ||
+            c.name.toLowerCase() === collKey.toLowerCase()
+        );
+        if (match) {
+            console.log(`✔ Collection "${displayName}" (${match.$id}) exists.`);
+            collections[collKey] = match.$id;
+            return match.$id;
         }
+    } catch (e) {
+        // continue to create
+    }
+
+    console.log(`Creating collection "${displayName}" (${preferredIdOrName})...`);
+    try {
+        const created = await databases.createCollection(databaseId, preferredIdOrName, displayName);
+        console.log(`✔ Collection "${displayName}" created with ID: ${created.$id}`);
+        collections[collKey] = created.$id;
+        return created.$id;
+    } catch (err) {
+        const created = await databases.createCollection(databaseId, ID.unique(), displayName);
+        console.log(`✔ Collection "${displayName}" created with fallback ID: ${created.$id}`);
+        collections[collKey] = created.$id;
+        return created.$id;
     }
 }
 
@@ -100,7 +121,7 @@ async function ensureStringAttr(collId, key, size, required = false, xdefault = 
         await databases.getAttribute(databaseId, collId, key);
     } catch (err) {
         if (err?.code === 404) {
-            console.log(`  + Adding string attribute: ${key} (size: ${size}, required: ${required})`);
+            console.log(`  + [${collId}] Adding string attribute: ${key} (size: ${size}, required: ${required})`);
             await databases.createStringAttribute(databaseId, collId, key, size, required, xdefault);
         } else {
             throw err;
@@ -113,7 +134,7 @@ async function ensureIntegerAttr(collId, key, required = false, min = undefined,
         await databases.getAttribute(databaseId, collId, key);
     } catch (err) {
         if (err?.code === 404) {
-            console.log(`  + Adding integer attribute: ${key} (default: ${xdefault})`);
+            console.log(`  + [${collId}] Adding integer attribute: ${key} (default: ${xdefault})`);
             await databases.createIntegerAttribute(databaseId, collId, key, required, min, max, xdefault);
         } else {
             throw err;
@@ -126,7 +147,7 @@ async function ensureIndex(collId, key, type, attributes) {
         await databases.getIndex(databaseId, collId, key);
     } catch (err) {
         if (err?.code === 404) {
-            console.log(`  + Creating index: ${key} (${type}) on [${attributes.join(', ')}]`);
+            console.log(`  + [${collId}] Creating index: ${key} (${type}) on [${attributes.join(', ')}]`);
             await databases.createIndex(databaseId, collId, key, type, attributes);
         } else {
             throw err;
@@ -160,61 +181,89 @@ async function waitForAttributes(collId, keys) {
     console.log(' Proceeding.');
 }
 
+function updateEnvFile() {
+    if (!existsSync(envPath)) return;
+    try {
+        let content = readFileSync(envPath, 'utf8');
+        const map = {
+            APPWRITE_USERS_COLLECTION_ID: collections.users,
+            APPWRITE_PLAYER_STATS_COLLECTION_ID: collections.playerStats,
+            APPWRITE_WALLET_COLLECTION_ID: collections.wallets,
+            APPWRITE_VEHICLES_COLLECTION_ID: collections.vehicles,
+            APPWRITE_WEAPONS_COLLECTION_ID: collections.weapons,
+        };
+
+        for (const [key, val] of Object.entries(map)) {
+            const regex = new RegExp(`^${key}=.*$`, 'm');
+            if (regex.test(content)) {
+                content = content.replace(regex, `${key}=${val}`);
+            } else {
+                content += `\n${key}=${val}`;
+            }
+        }
+        writeFileSync(envPath, content);
+        console.log('✔ Updated server/.env with resolved collection IDs.');
+    } catch (err) {
+        console.warn('Notice: Could not auto-update .env file:', err.message);
+    }
+}
+
 async function setupSchema() {
     console.log('\n--- Setting up Appwrite Database & Collections ---');
     await ensureDatabase();
 
     // 1. Users collection
-    await ensureCollection(collections.users, 'Users');
-    await ensureStringAttr(collections.users, 'username', 64, true);
-    await ensureStringAttr(collections.users, 'email', 255, true);
-    await ensureStringAttr(collections.users, 'passwordHash', 255, true);
-    await ensureStringAttr(collections.users, 'createdAt', 64, true);
-    await ensureStringAttr(collections.users, 'lastLogin', 64, false);
-    await waitForAttributes(collections.users, ['username', 'email', 'passwordHash', 'createdAt']);
-    await ensureIndex(collections.users, 'idx_users_username', DatabasesIndexType.Unique, ['username']);
-    await ensureIndex(collections.users, 'idx_users_email', DatabasesIndexType.Unique, ['email']);
+    const usersId = await ensureCollection('users', 'users');
+    await ensureStringAttr(usersId, 'username', 64, true);
+    await ensureStringAttr(usersId, 'email', 255, true);
+    await ensureStringAttr(usersId, 'passwordHash', 255, true);
+    await ensureStringAttr(usersId, 'createdAt', 64, true);
+    await ensureStringAttr(usersId, 'lastLogin', 64, false);
+    await waitForAttributes(usersId, ['username', 'email', 'passwordHash', 'createdAt']);
+    await ensureIndex(usersId, 'idx_users_username', DatabasesIndexType.Unique, ['username']);
+    await ensureIndex(usersId, 'idx_users_email', DatabasesIndexType.Unique, ['email']);
 
     // 2. PlayerStats collection
-    await ensureCollection(collections.playerStats, 'PlayerStats');
-    await ensureStringAttr(collections.playerStats, 'userId', 64, true);
-    await ensureIntegerAttr(collections.playerStats, 'level', false, 1, 100, 1);
-    await ensureIntegerAttr(collections.playerStats, 'xp', false, 0, 10000000, 0);
-    await ensureIntegerAttr(collections.playerStats, 'mmr', false, 0, 100000, 1000);
-    await ensureIntegerAttr(collections.playerStats, 'totalMatches', false, 0, 100000, 0);
-    await ensureIntegerAttr(collections.playerStats, 'wins', false, 0, 100000, 0);
-    await ensureIntegerAttr(collections.playerStats, 'kills', false, 0, 1000000, 0);
-    await ensureIntegerAttr(collections.playerStats, 'deaths', false, 0, 1000000, 0);
-    await waitForAttributes(collections.playerStats, ['userId', 'level', 'xp', 'mmr']);
-    await ensureIndex(collections.playerStats, 'idx_player_stats_userId', DatabasesIndexType.Unique, ['userId']);
+    const statsId = await ensureCollection('playerStats', 'player_stats');
+    await ensureStringAttr(statsId, 'userId', 64, true);
+    await ensureIntegerAttr(statsId, 'level', false, 1, 100, 1);
+    await ensureIntegerAttr(statsId, 'xp', false, 0, 10000000, 0);
+    await ensureIntegerAttr(statsId, 'mmr', false, 0, 100000, 1000);
+    await ensureIntegerAttr(statsId, 'totalMatches', false, 0, 100000, 0);
+    await ensureIntegerAttr(statsId, 'wins', false, 0, 100000, 0);
+    await ensureIntegerAttr(statsId, 'kills', false, 0, 1000000, 0);
+    await ensureIntegerAttr(statsId, 'deaths', false, 0, 1000000, 0);
+    await waitForAttributes(statsId, ['userId', 'level', 'xp', 'mmr']);
+    await ensureIndex(statsId, 'idx_player_stats_userId', DatabasesIndexType.Unique, ['userId']);
 
     // 3. Wallets collection
-    await ensureCollection(collections.wallets, 'Wallets');
-    await ensureStringAttr(collections.wallets, 'userId', 64, true);
-    await ensureIntegerAttr(collections.wallets, 'scrap', false, 0, 10000000, 0);
-    await ensureIntegerAttr(collections.wallets, 'credits', false, 0, 10000000, 0);
-    await waitForAttributes(collections.wallets, ['userId', 'scrap', 'credits']);
-    await ensureIndex(collections.wallets, 'idx_wallets_userId', DatabasesIndexType.Unique, ['userId']);
+    const walletsId = await ensureCollection('wallets', 'wallets');
+    await ensureStringAttr(walletsId, 'userId', 64, true);
+    await ensureIntegerAttr(walletsId, 'scrap', false, 0, 10000000, 0);
+    await ensureIntegerAttr(walletsId, 'credits', false, 0, 10000000, 0);
+    await waitForAttributes(walletsId, ['userId', 'scrap', 'credits']);
+    await ensureIndex(walletsId, 'idx_wallets_userId', DatabasesIndexType.Unique, ['userId']);
 
     // 4. Vehicles collection
-    await ensureCollection(collections.vehicles, 'Vehicles');
-    await ensureStringAttr(collections.vehicles, 'userId', 64, true);
-    await ensureStringAttr(collections.vehicles, 'vehicleType', 64, true);
-    await ensureStringAttr(collections.vehicles, 'color', 32, false);
-    await ensureIntegerAttr(collections.vehicles, 'engineLevel', false, 1, 10, 1);
-    await ensureIntegerAttr(collections.vehicles, 'armorLevel', false, 1, 10, 1);
-    await waitForAttributes(collections.vehicles, ['userId', 'vehicleType']);
-    await ensureIndex(collections.vehicles, 'idx_vehicles_userId', DatabasesIndexType.Key, ['userId']);
+    const vehiclesId = await ensureCollection('vehicles', 'vehicles');
+    await ensureStringAttr(vehiclesId, 'userId', 64, true);
+    await ensureStringAttr(vehiclesId, 'vehicleType', 64, true);
+    await ensureStringAttr(vehiclesId, 'color', 32, false);
+    await ensureIntegerAttr(vehiclesId, 'engineLevel', false, 1, 10, 1);
+    await ensureIntegerAttr(vehiclesId, 'armorLevel', false, 1, 10, 1);
+    await waitForAttributes(vehiclesId, ['userId', 'vehicleType']);
+    await ensureIndex(vehiclesId, 'idx_vehicles_userId', DatabasesIndexType.Key, ['userId']);
 
     // 5. Weapons collection
-    await ensureCollection(collections.weapons, 'Weapons');
-    await ensureStringAttr(collections.weapons, 'userId', 64, true);
-    await ensureStringAttr(collections.weapons, 'weaponType', 64, true);
-    await ensureIntegerAttr(collections.weapons, 'damageLevel', false, 1, 10, 1);
-    await ensureIntegerAttr(collections.weapons, 'cooldownLevel', false, 1, 10, 1);
-    await waitForAttributes(collections.weapons, ['userId', 'weaponType']);
-    await ensureIndex(collections.weapons, 'idx_weapons_userId', DatabasesIndexType.Key, ['userId']);
+    const weaponsId = await ensureCollection('weapons', 'weapons');
+    await ensureStringAttr(weaponsId, 'userId', 64, true);
+    await ensureStringAttr(weaponsId, 'weaponType', 64, true);
+    await ensureIntegerAttr(weaponsId, 'damageLevel', false, 1, 10, 1);
+    await ensureIntegerAttr(weaponsId, 'cooldownLevel', false, 1, 10, 1);
+    await waitForAttributes(weaponsId, ['userId', 'weaponType']);
+    await ensureIndex(weaponsId, 'idx_weapons_userId', DatabasesIndexType.Key, ['userId']);
 
+    updateEnvFile();
     console.log('\n✔ All collections, attributes, and indexes verified!');
 }
 
@@ -233,7 +282,6 @@ async function migrateData() {
         console.log(`Migrating ${data.User.length} users...`);
         for (const u of data.User) {
             try {
-                // Check if user already exists
                 const existing = await databases.listDocuments(databaseId, collections.users, [
                     Query.equal('username', u.username),
                     Query.limit(1)
@@ -298,7 +346,7 @@ async function migrateData() {
                     Query.limit(1)
                 ]);
                 if (existing.total > 0) {
-                    console.log(`  - Wallet for user ${w.userId} already exists (skipping)`);
+                    console.log(`  - Wallet for user ${w.userId} already exist (skipping)`);
                     continue;
                 }
 
@@ -314,7 +362,7 @@ async function migrateData() {
         }
     }
 
-    // 4. Vehicles and Weapons (if any)
+    // 4. Vehicles & Weapons
     if (Array.isArray(data.VehicleInventory) && data.VehicleInventory.length > 0) {
         console.log(`Migrating ${data.VehicleInventory.length} vehicles...`);
         for (const v of data.VehicleInventory) {

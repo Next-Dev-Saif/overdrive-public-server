@@ -248,6 +248,7 @@ class AppwriteDatabase {
     private databases: Databases;
     private databaseId: string;
     private collections = serverConfig.appwriteCollections;
+    private resolvedCollections = new Map<string, string>();
 
     constructor() {
         this.client = new Client()
@@ -256,6 +257,42 @@ class AppwriteDatabase {
             .setKey(serverConfig.appwriteApiKey);
         this.databases = new Databases(this.client);
         this.databaseId = serverConfig.appwriteDatabaseId;
+    }
+
+    /**
+     * Resolves the real collection ID, matching by ID or case-insensitive name if needed.
+     */
+    private async getCollId(key: 'users' | 'playerStats' | 'wallets' | 'vehicles' | 'weapons'): Promise<string> {
+        const cached = this.resolvedCollections.get(key);
+        if (cached) return cached;
+
+        const configured = this.collections[key];
+        try {
+            await this.databases.getCollection(this.databaseId, configured);
+            this.resolvedCollections.set(key, configured);
+            return configured;
+        } catch (err: any) {
+            if (err?.code === 404) {
+                try {
+                    const list = await this.databases.listCollections(this.databaseId);
+                    const alias = key === 'playerStats' ? 'player_stats' : key;
+                    const match = list.collections.find(c =>
+                        c.$id === configured ||
+                        c.name.toLowerCase() === configured.toLowerCase() ||
+                        c.name.toLowerCase() === alias.toLowerCase() ||
+                        c.name.toLowerCase() === key.toLowerCase()
+                    );
+                    if (match) {
+                        this.resolvedCollections.set(key, match.$id);
+                        return match.$id;
+                    }
+                } catch (listErr) {
+                    console.warn('[Appwrite] Error resolving collection by name:', listErr);
+                }
+            }
+            this.resolvedCollections.set(key, configured);
+            return configured;
+        }
     }
 
     async ping(): Promise<boolean> {
@@ -270,7 +307,8 @@ class AppwriteDatabase {
 
     async findUserByEmailOrUsername(email: string, username: string): Promise<DbUser | null> {
         try {
-            const emailRes = await this.databases.listDocuments(this.databaseId, this.collections.users, [
+            const usersColl = await this.getCollId('users');
+            const emailRes = await this.databases.listDocuments(this.databaseId, usersColl, [
                 Query.equal('email', email),
                 Query.limit(1),
             ]);
@@ -278,7 +316,7 @@ class AppwriteDatabase {
                 return mapUserDoc(emailRes.documents[0]);
             }
 
-            const usernameRes = await this.databases.listDocuments(this.databaseId, this.collections.users, [
+            const usernameRes = await this.databases.listDocuments(this.databaseId, usersColl, [
                 Query.equal('username', username),
                 Query.limit(1),
             ]);
@@ -295,7 +333,8 @@ class AppwriteDatabase {
 
     async findUserByUsername(username: string): Promise<DbUserWithRelations | null> {
         try {
-            const res = await this.databases.listDocuments(this.databaseId, this.collections.users, [
+            const usersColl = await this.getCollId('users');
+            const res = await this.databases.listDocuments(this.databaseId, usersColl, [
                 Query.equal('username', username),
                 Query.limit(1),
             ]);
@@ -316,7 +355,8 @@ class AppwriteDatabase {
 
     async findUserById(id: string): Promise<DbUserWithRelations | null> {
         try {
-            const doc = await this.databases.getDocument(this.databaseId, this.collections.users, id);
+            const usersColl = await this.getCollId('users');
+            const doc = await this.databases.getDocument(this.databaseId, usersColl, id);
             const user = mapUserDoc(doc);
             const [stats, wallet] = await Promise.all([
                 this.getPlayerStats(user.id),
@@ -343,9 +383,15 @@ class AppwriteDatabase {
         const now = new Date().toISOString();
 
         try {
+            const [usersColl, statsColl, walletsColl] = await Promise.all([
+                this.getCollId('users'),
+                this.getCollId('playerStats'),
+                this.getCollId('wallets'),
+            ]);
+
             const userDoc = await this.databases.createDocument(
                 this.databaseId,
-                this.collections.users,
+                usersColl,
                 userId,
                 {
                     username: data.username,
@@ -358,7 +404,7 @@ class AppwriteDatabase {
 
             const statsDoc = await this.databases.createDocument(
                 this.databaseId,
-                this.collections.playerStats,
+                statsColl,
                 ID.unique(),
                 {
                     userId,
@@ -374,7 +420,7 @@ class AppwriteDatabase {
 
             const walletDoc = await this.databases.createDocument(
                 this.databaseId,
-                this.collections.wallets,
+                walletsColl,
                 ID.unique(),
                 {
                     userId,
@@ -401,9 +447,10 @@ class AppwriteDatabase {
 
     async updateUserLastLogin(userId: string): Promise<void> {
         try {
+            const usersColl = await this.getCollId('users');
             await this.databases.updateDocument(
                 this.databaseId,
-                this.collections.users,
+                usersColl,
                 userId,
                 { lastLogin: new Date().toISOString() }
             );
@@ -414,7 +461,8 @@ class AppwriteDatabase {
 
     async getPlayerStats(userId: string): Promise<DbPlayerStats | null> {
         try {
-            const res = await this.databases.listDocuments(this.databaseId, this.collections.playerStats, [
+            const statsColl = await this.getCollId('playerStats');
+            const res = await this.databases.listDocuments(this.databaseId, statsColl, [
                 Query.equal('userId', userId),
                 Query.limit(1),
             ]);
@@ -428,7 +476,8 @@ class AppwriteDatabase {
 
     async updatePlayerStats(userId: string, data: Partial<DbPlayerStats>): Promise<DbPlayerStats> {
         try {
-            const res = await this.databases.listDocuments(this.databaseId, this.collections.playerStats, [
+            const statsColl = await this.getCollId('playerStats');
+            const res = await this.databases.listDocuments(this.databaseId, statsColl, [
                 Query.equal('userId', userId),
                 Query.limit(1),
             ]);
@@ -437,7 +486,7 @@ class AppwriteDatabase {
                 const existing = res.documents[0];
                 const updated = await this.databases.updateDocument(
                     this.databaseId,
-                    this.collections.playerStats,
+                    statsColl,
                     existing.$id,
                     data
                 );
@@ -447,7 +496,7 @@ class AppwriteDatabase {
             // Create if missing
             const created = await this.databases.createDocument(
                 this.databaseId,
-                this.collections.playerStats,
+                statsColl,
                 ID.unique(),
                 {
                     userId,
@@ -469,7 +518,8 @@ class AppwriteDatabase {
 
     private async getWallet(userId: string): Promise<DbWallet | null> {
         try {
-            const res = await this.databases.listDocuments(this.databaseId, this.collections.wallets, [
+            const walletsColl = await this.getCollId('wallets');
+            const res = await this.databases.listDocuments(this.databaseId, walletsColl, [
                 Query.equal('userId', userId),
                 Query.limit(1),
             ]);
@@ -483,7 +533,8 @@ class AppwriteDatabase {
 
     async incrementWalletScrap(userId: string, scrapGain: number): Promise<DbWallet> {
         try {
-            const res = await this.databases.listDocuments(this.databaseId, this.collections.wallets, [
+            const walletsColl = await this.getCollId('wallets');
+            const res = await this.databases.listDocuments(this.databaseId, walletsColl, [
                 Query.equal('userId', userId),
                 Query.limit(1),
             ]);
@@ -493,7 +544,7 @@ class AppwriteDatabase {
                 const currentScrap = Number(existing.scrap ?? 0);
                 const updated = await this.databases.updateDocument(
                     this.databaseId,
-                    this.collections.wallets,
+                    walletsColl,
                     existing.$id,
                     { scrap: currentScrap + scrapGain }
                 );
@@ -502,7 +553,7 @@ class AppwriteDatabase {
 
             const created = await this.databases.createDocument(
                 this.databaseId,
-                this.collections.wallets,
+                walletsColl,
                 ID.unique(),
                 {
                     userId,
