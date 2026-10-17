@@ -6,7 +6,7 @@ import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import authRoutes from './auth';
-import { prisma } from './db';
+import { db } from './db';
 import {
     TDM_RULES,
     getTeamSpawn,
@@ -35,8 +35,12 @@ app.get(['/', '/health', '/healthz', '/up'], (_req, res) => {
 });
 app.get('/readyz', async (_req, res) => {
     try {
-        await prisma.user.findFirst({ select: { id: true } });
-        res.status(200).json({ status: 'ready' });
+        const ready = await db.ping();
+        if (ready) {
+            res.status(200).json({ status: 'ready' });
+        } else {
+            res.status(200).json({ status: 'ready', database: 'initializing' });
+        }
     } catch {
         // Return 200 with notice so cloud health checks do not stall container boot
         res.status(200).json({ status: 'ready', database: 'initializing' });
@@ -221,20 +225,20 @@ async function settleMatch(session: MatchSession): Promise<void> {
         const xpGain = won ? 150 : 75;
         const scrapGain = won ? 40 : 20;
         try {
-            const stats = await prisma.playerStats.findUnique({ where: { userId: member.userId } });
+            const stats = await db.getPlayerStats(member.userId);
             if (stats) {
                 const totalXp = stats.xp + xpGain;
                 const xpRequired = stats.level * 1000;
-                await prisma.playerStats.update({ where: { userId: member.userId }, data: {
+                await db.updatePlayerStats(member.userId, {
                     xp: totalXp >= xpRequired ? totalXp - xpRequired : totalXp,
                     level: totalXp >= xpRequired ? stats.level + 1 : stats.level,
-                    kills: { increment: session.kills.get(member.entityId) ?? 0 },
-                    deaths: { increment: session.deaths.get(member.entityId) ?? 0 },
-                    mmr: { increment: won ? 5 : session.snapshot.winner === 'draw' ? 0 : -2 },
-                } });
+                    kills: (stats.kills ?? 0) + (session.kills.get(member.entityId) ?? 0),
+                    deaths: (stats.deaths ?? 0) + (session.deaths.get(member.entityId) ?? 0),
+                    mmr: (stats.mmr ?? 1000) + (won ? 5 : session.snapshot.winner === 'draw' ? 0 : -2),
+                });
             }
-            await prisma.wallet.update({ where: { userId: member.userId }, data: { scrap: { increment: scrapGain } } });
-            const updatedUser = await prisma.user.findUnique({ where: { id: member.userId }, include: { stats: true, wallet: true } });
+            await db.incrementWalletScrap(member.userId, scrapGain);
+            const updatedUser = await db.getUserWithStatsAndWallet(member.userId);
             if (updatedUser) io.to(member.entityId).emit('progressionUpdate', { stats: updatedUser.stats, wallet: updatedUser.wallet, message: `${won ? 'Victory' : 'Match complete'}: +${xpGain} XP, +${scrapGain} Scrap` });
         } catch (error) {
             console.error('Unable to settle match rewards:', error);
@@ -464,7 +468,7 @@ async function shutdown() {
     stopDeathRace();
     const deadline = setTimeout(() => process.exit(1), 10000);
     deadline.unref();
-    io.close(async () => { await prisma.$disconnect(); clearTimeout(deadline); process.exit(0); });
+    io.close(async () => { await db.disconnect(); clearTimeout(deadline); process.exit(0); });
 }
 process.on('SIGTERM', shutdown);
 httpServer.listen(serverConfig.port, serverConfig.host, () => {

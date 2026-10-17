@@ -1,25 +1,34 @@
-/** Isolated production smoke test: temporary SQLite only; no browser or real account. */
+/** Isolated production smoke test: temporary Appwrite-compatible test runner; no browser or real account. */
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { io } from 'socket.io-client';
+
 const require = createRequire(import.meta.url);
 const { readServerConfig } = require('../dist/src/config.js');
 const { backendOrigin } = require('../dist/shared/backendOrigin.js');
+
 assert.throws(() => backendOrigin(undefined, true));
 for (const url of ['http://localhost:3001', 'https://api.example.com/auth', 'https://user:password@api.example.com', 'wss://api.example.com']) assert.throws(() => backendOrigin(url, true));
 assert.equal(backendOrigin(' https://api.example.com/ ', true), 'https://api.example.com');
-const temp = await mkdtemp(join(tmpdir(), 'overdrive-production-'));
-const env = { ...process.env, NODE_ENV: 'production', JWT_SECRET: 'test-only-secret-with-more-than-32-characters', DATABASE_URL: `file:${temp}/test.db`, FRONTEND_ORIGINS: 'https://frontend.example.com', PORT: '3198', HOST: '127.0.0.1' };
-assert.throws(() => readServerConfig({ ...env, JWT_SECRET: '' }));
-assert.throws(() => readServerConfig({ ...env, DATABASE_URL: 'file:./dev.db' }));
+
+const env = {
+    ...process.env,
+    NODE_ENV: 'production',
+    JWT_SECRET: 'test-only-secret-with-more-than-32-characters',
+    APPWRITE_MOCK: 'true',
+    APPWRITE_PROJECT_ID: 'test-project-id',
+    APPWRITE_API_KEY: 'test-secret-api-key',
+    FRONTEND_ORIGINS: 'https://frontend.example.com',
+    PORT: '3198',
+    HOST: '127.0.0.1',
+};
+
+assert.throws(() => readServerConfig({ ...env, APPWRITE_PROJECT_ID: '', APPWRITE_MOCK: 'false' }));
+assert.throws(() => readServerConfig({ ...env, APPWRITE_API_KEY: '', APPWRITE_MOCK: 'false' }));
 assert.throws(() => readServerConfig({ ...env, FRONTEND_ORIGINS: '*' }));
 assert.throws(() => readServerConfig({ ...env, PORT: '-1' }));
-const migration = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env, encoding: 'utf8' });
-assert.equal(migration.status, 0, migration.stderr + migration.stdout);
+
 const server = spawn(process.execPath, ['dist/src/index.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 const exited = new Promise(resolve => server.once('exit', resolve));
 let logs = ''; server.stdout.on('data', chunk => { logs += chunk; }); server.stderr.on('data', chunk => { logs += chunk; });
@@ -58,7 +67,7 @@ try {
     let response;
     for (let i = 0; i < 31; i++) response = await request('/auth/login', { username: valid.username, password: 'wrong-password' });
     assert.equal(response.status, 429); assert.ok(Number(response.headers.get('retry-after')) > 0);
-    console.log('PASS: production env validation, fresh database migration, readiness, auth, origin restrictions, authenticated WebSockets and login throttling.');
+    console.log('PASS: production env validation, Appwrite database layer, readiness, auth, origin restrictions, authenticated WebSockets and login throttling.');
 } finally {
     server.kill('SIGTERM');
     const killTimer = setTimeout(() => server.kill('SIGKILL'), 12000);

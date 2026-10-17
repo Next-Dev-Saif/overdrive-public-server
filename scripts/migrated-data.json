@@ -1,0 +1,185 @@
+{
+  "User": [
+    {
+      "id": "5308df82-2761-408e-95c4-2f45b9310e1d",
+      "username": "Mr-Saif",
+      "email": "sseries792@gmail.com",
+      "passwordHash": "$2b$10$zhNO8i1DJXidD5fo6sB8jOkXDNG7v7kmpaDsY6MaWJaZe/JY1FPaa",
+      "createdAt": 1791227818935,
+      "lastLogin": null
+    },
+    {
+      "id": "1c84b945-18a9-44fa-8d6f-038028e2f93e",
+      "username": "Mr_Bomb",
+      "email": "bombhacksbomb@gmail.com",
+      "passwordHash": "$2b$10$PXyjlKXA48ewh75OH63he./1t4/9dQV46iYEGLk6CAZQA7081Gmri",
+      "createdAt": 1791229559486,
+      "lastLogin": null
+    },
+    {
+      "id": "f4bdbcee-09e8-4bb3-a623-b70028ad02ab",
+      "username": "M-Abydus",
+      "email": "j2157@gmail.com",
+      "passwordHash": "$2b$10$ptCqVvyITilCprrCvyAa5euokPEhZ9VhCz3rvir3yazcwP2IhD6cC",
+      "createdAt": 1791833102107,
+      "lastLogin": null
+    },
+    {
+      "id": "010ebdca-58d5-4f93-be9d-bcfc0faf981e",
+      "username": "sigma",
+      "email": "sigma123@gmail.com",
+      "passwordHash": "$2b$10$h6KhPzzY3RFWSMkIXoxuPOcNTxsTPxPHdraLcJnz0827l5dYGPxeK",
+      "createdAt": 1792255997497,
+      "lastLogin": null
+    },
+    {
+      "id": "e59e9256-4ef4-4cdf-be57-a2fed38eaa3d",
+      "username": "Hephaestus123",
+      "email": "hephaestus234@gmail.com",
+      "passwordHash": "$2b$10$HD0eoVLYfYt8rhRuYmtGqOBM1RTVUfhh83rR.mL5wjjDGpjhJozKq",
+      "createdAt": 1792258581448,
+      "lastLogin": null
+    },
+    {
+      "id": "2bc1d6ea-35f4-411f-8afc-b8dbfa431632",
+      "username": "Calligen",
+      "email": "sera123@gmail.com",
+      "passwordHash": "$2b$10$XQLRlzWjL6giWosEDRAPc.vQupHrP/HpsYoyQwPn/uLbdkKQKvVt2",
+      "createdAt": 1792260792245,
+      "lastLogin": null
+    },
+    {
+      "id": "98deaddc-9c25-4bcb-bc58-1940dd0bb676",
+      "username": "asthma123",
+      "email": "asthma123@gmail.com",
+      "passwordHash": "$2b$10$FzsDv4bfd7oYOcRX2.KNn.dSKvZ3G78uUN0wD7xG6I/E1agPzJNRi",
+      "createdAt": 1792262264083,
+      "lastLogin": null
+    }
+  ],
+  "PlayerStats": [
+    {
+      "id": "8a4a2c09-e2bc-474a-9724-a6a2145671d1",
+      "userId": "5308df82-2761-408e-95c4-2f45b9310e1d",
+      "level": 5,
+      "xp": 2375,
+      "mmr": 1120,
+      "totalMatches": 0,
+      "wins": 0,
+      "kills": 346,
+      "deaths": 354
+    },
+    {
+      "id": "85621637-131f-45f2-9e73-afb953065f1a",
+      "userId": "1c84b945-18a9-44fa-8d6f-038028e2f93e",
+      "level": 1,
+      "xp": 0,
+      "mmr": 1000,
+      "totalMatches": 0,
+      "wins": 0,
+      "kills": 0,
+      "deaths": 0
+    },
+    {
+      "id": "e2f77f9d-41ca-4cb8-add3-da0cf335d6e6",
+      "userId": "f4bdbcee-09e8-4bb3-a623-b70028ad02ab",
+      "level": 2,
+      "xp": 425,
+      "mmr": 1011,
+      "totalMatches": 0,
+      "wins": 0,
+      "kills": 39,
+      "deaths": 37
+    },
+    {
+      "id": "900363a6-48d9-4c2a-9d40-ff53be10f45b",
+      "userId": "010ebdca-58d5-4f93-be9d-bcfc0faf981e",
+      "level": 1,
+      "xp": 150,
+      "mmr": 1000,
+      "totalMatches": 0,
+      "wins": 0,
+      "kills": 0,
+      "deaths": 0
+    },
+    {
+      "id": "b3e7cc60-125d-46df-a316-1aef1fc4d634",
+      "userId": "e59e9256-4ef4-4cdf-be57-a2fed38eaa3d",
+      "level": 1,
+      "xp": 825,
+      "mmr": 1005,
+      "totalMatches": 0,
+      "wins": 0,
+      "kills": 27,
+      "deaths": 23
+    },
+    {
+      "id": "db431149-85b1-4161-9a6f-1f53e019661c",
+      "userId": "2bc1d6ea-35f4-411f-8afc-b8dbfa431632",
+      "level": 1,
+      "xp": 75,
+      "mmr": 1000,
+      "totalMatches": 0,
+      "wins": 0,
+      "kills": 1,
+      "deaths": 3
+    },
+    {
+      "id": "b4a0fbc3-c74b-4b41-bb31-6456b79a9bbc",
+      "userId": "98deaddc-9c25-4bcb-bc58-1940dd0bb676",
+      "level": 1,
+      "xp": 600,
+      "mmr": 1000,
+      "totalMatches": 0,
+      "wins": 0,
+      "kills": 1,
+      "deaths": 14
+    }
+  ],
+  "Wallet": [
+    {
+      "id": "c8b96ef5-a084-4ad6-8424-6421260b02ac",
+      "userId": "5308df82-2761-408e-95c4-2f45b9310e1d",
+      "scrap": 3300,
+      "credits": 0
+    },
+    {
+      "id": "3cc1d913-984e-4daa-b465-4c0c321db636",
+      "userId": "1c84b945-18a9-44fa-8d6f-038028e2f93e",
+      "scrap": 0,
+      "credits": 0
+    },
+    {
+      "id": "53358918-d909-439c-9f3d-2fbb638cd00f",
+      "userId": "f4bdbcee-09e8-4bb3-a623-b70028ad02ab",
+      "scrap": 380,
+      "credits": 0
+    },
+    {
+      "id": "75f074ac-69e5-484e-a5bd-ce7f747ad8eb",
+      "userId": "010ebdca-58d5-4f93-be9d-bcfc0faf981e",
+      "scrap": 40,
+      "credits": 0
+    },
+    {
+      "id": "cb5fd8e7-5c77-4630-9d9a-fa5129bee941",
+      "userId": "e59e9256-4ef4-4cdf-be57-a2fed38eaa3d",
+      "scrap": 220,
+      "credits": 0
+    },
+    {
+      "id": "9e178487-bee4-48dd-8be5-4fe1d4993955",
+      "userId": "2bc1d6ea-35f4-411f-8afc-b8dbfa431632",
+      "scrap": 20,
+      "credits": 0
+    },
+    {
+      "id": "1f6aaaef-e02e-4590-ae21-2e1a1a44fe25",
+      "userId": "98deaddc-9c25-4bcb-bc58-1940dd0bb676",
+      "scrap": 160,
+      "credits": 0
+    }
+  ],
+  "VehicleInventory": [],
+  "WeaponInventory": []
+}

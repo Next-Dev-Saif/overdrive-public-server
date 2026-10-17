@@ -3,7 +3,7 @@ import { serverConfig } from './config';
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { prisma } from './db';
+import { db } from './db';
 
 const router = Router();
 const JWT_SECRET = serverConfig.jwtSecret;
@@ -24,9 +24,7 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ error: "Invalid credentials: use a valid username, email and password." });
         }
 
-        const existingUser = await prisma.user.findFirst({
-            where: { OR: [{ email }, { username }] }
-        });
+        const existingUser = await db.findUserByEmailOrUsername(email, username);
 
         if (existingUser) {
             return res.status(409).json({ error: "Username or email already exists" });
@@ -34,23 +32,18 @@ router.post('/register', async (req, res) => {
 
         const passwordHash = await bcrypt.hash(password, 10);
 
-        // Create User, Stats, and Wallet in one transaction
-        const user = await prisma.user.create({
-            data: {
-                username,
-                email,
-                passwordHash,
-                stats: { create: {} },
-                wallet: { create: {} }
-            },
-            include: { stats: true, wallet: true }
+        // Create User, Stats, and Wallet in Appwrite
+        const user = await db.createUser({
+            username,
+            email,
+            passwordHash,
         });
 
         const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
 
         res.status(201).json({ token, user: { id: user.id, username: user.username, email: user.email, stats: user.stats, wallet: user.wallet } });
-    } catch (error) {
-        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
+    } catch (error: any) {
+        if (error?.code === 409 || error?.code === 'P2002' || error?.message?.includes('already exists')) {
             return res.status(409).json({ error: 'Username or email already exists' });
         }
         console.error("Register error:", error);
@@ -66,20 +59,14 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: "Missing required fields" });
         }
 
-        const user = await prisma.user.findUnique({
-            where: { username },
-            include: { stats: true, wallet: true }
-        });
+        const user = await db.findUserByUsername(username);
 
         if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
             return res.status(401).json({ error: "Invalid credentials" });
         }
 
-        // Update last login
-        await prisma.user.update({
-            where: { id: user.id },
-            data: { lastLogin: new Date() }
-        });
+        // Update last login timestamp
+        await db.updateUserLastLogin(user.id);
 
         const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
 
