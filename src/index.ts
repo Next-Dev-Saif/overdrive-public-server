@@ -1,3 +1,4 @@
+import { installRoomBrowser } from './rooms';
 import { serverConfig, isAllowedOrigin } from './config';
 import { installDeathRace } from './race';
 import express from 'express';
@@ -94,7 +95,7 @@ interface PlayerState {
     maxHealth: number;
 }
 
-interface MatchmakingEntry {
+export interface MatchmakingEntry {
     socketId: string;
     userId: string;
     username: string;
@@ -303,8 +304,15 @@ io.use((socket, next) => {
     }
 });
 
+installRoomBrowser(io, startMatch, () => [...matches.values()].filter(session => resolveMatchPhase(session.snapshot) !== 'ended').map(session => ({
+    id: session.snapshot.roomId, name: `Battle ${session.snapshot.matchId.slice(-5)}`, mapId: session.snapshot.mapId,
+    humans: session.snapshot.roster.filter(member => member.kind === 'human' && member.connected).length,
+    capacity: 10, status: 'playing' as const,
+})), (socketId, userId) => matchmakingQueue.some(entry => entry.userId === userId) || socketMatches.has(socketId) || [...matches.values()].some(session => resolveMatchPhase(session.snapshot) !== 'ended' && session.snapshot.roster.some(member => member.userId === userId && member.connected)));
+
 io.on('connection', (socket: Socket) => {
     socket.on('joinMatchmaking', (data: { mapId: string; vehicleId: string; weaponId: string; vehicleColor?: string }) => {
+        if (socket.data.waitingRoom || socketMatches.has(socket.id)) return;
         const existingIndex = matchmakingQueue.findIndex(entry => entry.userId === socket.data.userId);
         if (existingIndex >= 0) matchmakingQueue.splice(existingIndex, 1);
         matchmakingQueue.push({ socketId: socket.id, userId: socket.data.userId, username: socket.data.username, ...data });
