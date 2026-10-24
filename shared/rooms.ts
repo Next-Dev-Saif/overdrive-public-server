@@ -12,5 +12,5 @@ export interface RoomMembership {
     isHost: boolean;
     players: string[];
 }
-export interface RoomLoadout { mapId: string; vehicleId: string; weaponId: string; vehicleColor?: string }
+export interface RoomLoadout { mapId: string; vehicleId: string; weaponId: string; vehicleColor?: string; vehicleSkin?: string }
 export interface RoomReply { error?: string }

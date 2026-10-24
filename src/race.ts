@@ -1,3 +1,5 @@
+import { normalizeInventory } from '../shared/economy';
+import { normalizeVehicleSkin } from '../shared/skins';
 import type { Server, Socket } from 'socket.io';
 import { createPickups, createRacer, NEUTRAL_INPUT, recoverRacer, stepRace } from '../shared/race/simulation';
 import { RACE_RULES, type RaceInput, type RaceSnapshot } from '../shared/race/types';
@@ -14,7 +16,7 @@ export function installDeathRace(io: Server): () => void {
         if (!humans.length) { queue.clear(); return; }
         humans.forEach(socket => queue.delete(socket.id));
         const now = Date.now(), id = `race-${now}-${humans[0].id}`;
-        const racers = humans.map((socket, i) => createRacer(socket.id, String(socket.data.username ?? 'DRIVER').slice(0, 24), i, false, socket.data.raceColor));
+        const racers = humans.map((socket, i) => createRacer(socket.id, String(socket.data.username ?? 'DRIVER').slice(0, 24), i, false, socket.data.raceColor, socket.data.raceSkin));
         while (racers.length < RACE_RULES.racers) { const i = racers.length; racers.push(createRacer(`${id}:bot:${i}`, `RIVAL ${i + 1}`, i, true, ['#aeb3bc', '#eeede6', '#636973'][i % 3])); }
         const state: RaceSnapshot = { id, phase: 'loading', serverTime: now, startsAt: 0, endsAt: 0, racers, pickups: createPickups(), winner: null };
         sessions.set(id, { state, inputs: new Map(), ready: new Set(), lastInput: new Map(), loadingDeadline: now + 30000, finishedAt: 0 });
@@ -22,10 +24,12 @@ export function installDeathRace(io: Server): () => void {
         if (queue.size) queueTimer = setTimeout(launch, RACE_RULES.queueMs);
     };
     const attach = (socket: Socket) => {
-        socket.on('race:queue', (data?: { color?: string }) => {
+        socket.on('race:queue', (data?: { color?: string; skin?: string }) => {
             if (socket.data.raceId || socket.data.matchId) return;
             for (const queued of queue.values()) if (queued.data.userId === socket.data.userId) { queue.delete(queued.id); if (queued !== socket) queued.emit('race:error', 'Race search moved to another connection.'); }
             socket.data.raceColor = typeof data?.color === 'string' && /^#[0-9a-f]{6}$/i.test(data.color) ? data.color : '#e4e4e7';
+            const skin = normalizeVehicleSkin(data?.skin);
+            socket.data.raceSkin = normalizeInventory(socket.data.inventory).skins.includes(skin) ? skin : 'solid';
             queue.set(socket.id, socket);
             if (queue.size >= RACE_RULES.racers) launch(); else if (!queueTimer) queueTimer = setTimeout(launch, RACE_RULES.queueMs);
         });

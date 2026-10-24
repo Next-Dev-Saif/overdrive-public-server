@@ -12,9 +12,9 @@ const track_1 = require("./track");
 const physics_1 = require("./physics");
 const types_1 = require("./types");
 exports.NEUTRAL_INPUT = { throttle: 0, steer: 0, brake: true, fire: false, ability: false };
-function createRacer(id, name, slot, bot, color = '#e4e4e7') {
+function createRacer(id, name, slot, bot, color = '#e4e4e7', skin = 'solid') {
     const pose = (0, track_1.trackPose)(-10 - Math.floor(slot / 2) * 10, slot % 2 ? 4 : -4);
-    return { id, name, bot, connected: true, color, x: pose.x, z: pose.z, yaw: pose.yaw, vx: 0, vz: 0, health: types_1.RACE_RULES.health, weapon: null, ammo: 0, lap: 0, nextGate: 0, started: false, progress: -10 - slot * 5, finishedAt: null, place: null, respawnAt: 0, protectedUntil: 0, lastShot: 0, recovery: 0, lastAbility: 0, targetId: null, targetSince: 0, abilityTarget: null, abilityImpactAt: 0 };
+    return { id, name, bot, connected: true, color, skin, x: pose.x, z: pose.z, yaw: pose.yaw, vx: 0, vz: 0, health: types_1.RACE_RULES.health, weapon: null, ammo: 0, lap: 0, nextGate: 0, started: false, progress: -10 - slot * 5, finishedAt: null, place: null, respawnAt: 0, protectedUntil: 0, lastShot: 0, recovery: 0, lastAbility: 0, targetId: null, targetSince: 0, abilityTarget: null, abilityImpactAt: 0 };
 }
 function createPickups() {
     const weapons = Object.keys(types_1.RACE_WEAPONS);
@@ -135,7 +135,7 @@ function stepRace(state, inputs, now, dt) {
                 car.abilityImpactAt = now + types_1.RACE_ABILITY.windupMs;
             }
         }
-        const target = car.weapon && car.ammo > 0 ? (0, combat_1.findRaceTarget)(car, state.racers, now, types_1.RACE_WEAPONS[car.weapon].range) : undefined;
+        const target = car.weapon && car.ammo > 0 ? (0, combat_1.findRaceTarget)(car, state.racers, now, types_1.RACE_WEAPONS[car.weapon].range) : car.bot ? (0, combat_1.findRaceTarget)(car, state.racers, now, types_1.RACE_ABILITY.range) : undefined;
         if (car.targetId !== ((_b = target === null || target === void 0 ? void 0 : target.id) !== null && _b !== void 0 ? _b : null)) {
             car.targetId = (_c = target === null || target === void 0 ? void 0 : target.id) !== null && _c !== void 0 ? _c : null;
             car.targetSince = now;

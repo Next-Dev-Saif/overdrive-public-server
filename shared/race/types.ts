@@ -10,7 +10,7 @@ export const RACE_WEAPONS: Record<RaceWeapon, { ammo: number; damage: number; in
 export const RACE_ABILITY = { cooldownMs: 15000, windupMs: 1100, range: 80, damage: 90 } as const;
 export interface RaceInput { throttle: number; steer: number; brake: boolean; fire: boolean; ability: boolean }
 export interface Racer {
-    id: string; name: string; bot: boolean; connected: boolean; color: string;
+    id: string; name: string; bot: boolean; connected: boolean; color: string; skin?: string;
     x: number; z: number; yaw: number; vx: number; vz: number;
     health: number; weapon: RaceWeapon | null; ammo: number;
     lap: number; nextGate: number; started: boolean; progress: number;

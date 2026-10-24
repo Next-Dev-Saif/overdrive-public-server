@@ -1,3 +1,4 @@
+import { emptyInventory, normalizeInventory, purchaseItem, type Inventory, type Purchase } from '../shared/economy';
 import { serverConfig } from './config';
 import { Client, Databases, Query, ID } from 'node-appwrite';
 import { randomUUID } from 'crypto';
@@ -30,6 +31,7 @@ export interface DbWallet {
     userId: string;
     scrap: number;
     credits: number;
+    inventory?: Inventory;
 }
 
 export interface DbUserWithRelations extends DbUser {
@@ -71,6 +73,7 @@ function mapWalletDoc(doc: any): DbWallet {
         userId: doc.userId,
         scrap: Number(doc.scrap ?? 0),
         credits: Number(doc.credits ?? 0),
+        inventory: normalizeInventory(doc.inventory),
     };
 }
 
@@ -231,6 +234,15 @@ class InMemoryDatabase {
         }
         wallet.scrap += scrapGain;
         return wallet;
+    }
+
+    /** Synchronous mutation before the promise resolves makes in-memory purchases atomic. */
+    async purchase(userId: string, request: Purchase): Promise<DbWallet> {
+        const wallet = this.wallets.get(userId);
+        if (!wallet) throw new Error('Wallet unavailable.');
+        const next = purchaseItem({ scrap: wallet.scrap, inventory: normalizeInventory(wallet.inventory) }, request);
+        Object.assign(wallet, next);
+        return { ...wallet };
     }
 
     async getUserWithStatsAndWallet(userId: string): Promise<DbUserWithRelations | null> {
@@ -426,6 +438,7 @@ class AppwriteDatabase {
                     userId,
                     scrap: 0,
                     credits: 0,
+                    inventory: JSON.stringify(emptyInventory()),
                 }
             );
 
@@ -541,13 +554,10 @@ class AppwriteDatabase {
 
             if (res.total > 0 && res.documents[0]) {
                 const existing = res.documents[0];
-                const currentScrap = Number(existing.scrap ?? 0);
-                const updated = await this.databases.updateDocument(
-                    this.databaseId,
-                    walletsColl,
-                    existing.$id,
-                    { scrap: currentScrap + scrapGain }
-                );
+                const updated = await this.databases.incrementDocumentAttribute({
+                    databaseId: this.databaseId, collectionId: walletsColl, documentId: existing.$id,
+                    attribute: 'scrap', value: scrapGain,
+                });
                 return mapWalletDoc(updated);
             }
 
@@ -559,11 +569,33 @@ class AppwriteDatabase {
                     userId,
                     scrap: scrapGain,
                     credits: 0,
+                    inventory: JSON.stringify(emptyInventory()),
                 }
             );
             return mapWalletDoc(created);
         } catch (error) {
             console.error('[Appwrite] incrementWalletScrap error:', error);
+            throw error;
+        }
+    }
+
+    /** Inventory and balance commit together; concurrent updates fail with a conflict. */
+    async purchase(userId: string, request: Purchase): Promise<DbWallet> {
+        const collectionId = await this.getCollId('wallets');
+        const transaction = await this.databases.createTransaction({ ttl: 60 });
+        try {
+            const result = await this.databases.listDocuments({ databaseId: this.databaseId, collectionId,
+                queries: [Query.equal('userId', userId), Query.limit(1)], transactionId: transaction.$id });
+            const document = result.documents[0];
+            if (!document) throw new Error('Wallet unavailable.');
+            const current = mapWalletDoc(document);
+            const next = purchaseItem({ scrap: current.scrap, inventory: normalizeInventory(current.inventory) }, request);
+            const updated = await this.databases.updateDocument({ databaseId: this.databaseId, collectionId, documentId: document.$id,
+                data: { scrap: next.scrap, inventory: JSON.stringify(next.inventory) }, transactionId: transaction.$id });
+            await this.databases.updateTransaction({ transactionId: transaction.$id, commit: true });
+            return mapWalletDoc(updated);
+        } catch (error) {
+            await this.databases.updateTransaction({ transactionId: transaction.$id, rollback: true }).catch(() => undefined);
             throw error;
         }
     }

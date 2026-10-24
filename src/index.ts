@@ -1,4 +1,7 @@
-import { installRoomBrowser } from './rooms';
+import economyRoutes from './economy';
+import { normalizeInventory, upgradedHealth, weaponMultiplier } from '../shared/economy';
+import { normalizeVehicleSkin } from '../shared/skins';
+import { installRoomBrowser, validRoomLoadout } from './rooms';
 import { serverConfig, isAllowedOrigin } from './config';
 import { installDeathRace } from './race';
 import express from 'express';
@@ -48,6 +51,7 @@ app.get('/readyz', async (_req, res) => {
     }
 });
 app.use('/auth', authRoutes);
+app.use('/economy', economyRoutes);
 
 const JWT_SECRET = serverConfig.jwtSecret;
 const httpServer = createServer(app);
@@ -88,7 +92,7 @@ interface PlayerState {
     teamId?: TeamId;
     vehicleId: string;
     weaponId: string;
-    vehicleColor?: string;
+    vehicleColor?: string; vehicleSkin?: string;
     position: { x: number; y: number; z: number };
     rotation: { x: number; y: number; z: number; w: number };
     health: number;
@@ -102,7 +106,7 @@ export interface MatchmakingEntry {
     mapId: string;
     vehicleId: string;
     weaponId: string;
-    vehicleColor?: string;
+    vehicleColor?: string; vehicleSkin?: string;
 }
 
 interface MatchSession {
@@ -116,6 +120,8 @@ interface MatchSession {
     invulnerableUntil: Map<string, number>;
     pendingRespawns: Set<string>;
     settled: boolean;
+    readyClients: Set<string>;
+    loadingDeadline: number;
 }
 
 const players = new Map<string, PlayerState>();
@@ -125,7 +131,7 @@ const matches = new Map<string, MatchSession>();
 const socketMatches = new Map<string, string>();
 
 function snapshotFor(session: MatchSession): MatchSnapshot {
-    return { ...session.snapshot, phase: resolveMatchPhase(session.snapshot), roster: session.snapshot.roster.map(member => ({ ...member })) };
+    return { ...session.snapshot, serverTime: Date.now(), phase: resolveMatchPhase(session.snapshot), roster: session.snapshot.roster.map(member => ({ ...member })) };
 }
 
 function emitSnapshot(session: MatchSession): void {
@@ -144,7 +150,7 @@ function createMember(entry: MatchmakingEntry, index: number): MatchMember {
         slot: Math.floor(index / 2),
         vehicleId: entry.vehicleId,
         weaponId: entry.weaponId,
-        vehicleColor: entry.vehicleColor,
+        vehicleColor: entry.vehicleColor, vehicleSkin: normalizeInventory(io.sockets.sockets.get(entry.socketId)?.data.inventory).skins.includes(normalizeVehicleSkin(entry.vehicleSkin)) ? normalizeVehicleSkin(entry.vehicleSkin) : 'solid',
         connected: true,
     };
 }
@@ -176,17 +182,19 @@ function startMatch(entries: MatchmakingEntry[]): void {
     fillBots(matchId, roster);
     const startsAt = createdAt + TDM_RULES.introMs + TDM_RULES.countdownMs;
     const snapshot: MatchSnapshot = {
-        matchId, roomId, mapId: entries[0].mapId, phase: 'intro', startsAt,
+        matchId, roomId, mapId: entries[0].mapId, phase: 'intro', startsAt, loading: true,
         endsAt: startsAt + TDM_RULES.durationMs,
         scoreLimit: TDM_RULES.scoreLimit,
         scores: { alpha: 0, bravo: 0 }, roster, winner: null,
     };
     const session: MatchSession = {
-        snapshot, hostSocketId: entries[0].socketId, health: new Map(), maxHealth: new Map(),
+        snapshot, readyClients: new Set(), loadingDeadline: createdAt + TDM_RULES.loadingTimeoutMs, hostSocketId: entries[0].socketId, health: new Map(), maxHealth: new Map(),
         kills: new Map(), deaths: new Map(), lastHitSequence: new Map(), invulnerableUntil: new Map(), pendingRespawns: new Set(), settled: false,
     };
     for (const member of roster) {
-        const maxHealth = VEHICLE_HEALTH[member.vehicleId] ?? 600;
+        const inventory = normalizeInventory(io.sockets.sockets.get(member.entityId)?.data.inventory);
+        const maxHealth = upgradedHealth(member.vehicleId, inventory);
+        member.maxHealth = maxHealth;
         session.health.set(member.entityId, maxHealth);
         session.maxHealth.set(member.entityId, maxHealth);
         session.kills.set(member.entityId, 0);
@@ -261,7 +269,22 @@ function endMatch(session: MatchSession, winner: TeamId | 'draw'): void {
     }, 60_000);
 }
 
+/** The server starts one shared timeline only after every connected human loaded the roster. */
+function beginReadyMatch(session: MatchSession): void {
+    if (!session.snapshot.loading || session.snapshot.winner !== null) return;
+    const humans = session.snapshot.roster.filter(member => member.kind === 'human' && member.connected);
+    if (!humans.length || !humans.every(member => session.readyClients.has(member.entityId))) return;
+    session.snapshot.loading = false;
+    session.snapshot.startsAt = Date.now() + TDM_RULES.introMs + TDM_RULES.countdownMs;
+    session.snapshot.endsAt = session.snapshot.startsAt + TDM_RULES.durationMs;
+    emitSnapshot(session);
+}
+
 function evaluateMatchEnd(session: MatchSession): void {
+    if (session.snapshot.loading) {
+        if (Date.now() >= session.loadingDeadline) endMatch(session, 'draw');
+        return;
+    }
     if (session.snapshot.winner !== null) return;
     const { alpha, bravo } = session.snapshot.scores;
     if (alpha >= session.snapshot.scoreLimit) return endMatch(session, 'alpha');
@@ -291,11 +314,13 @@ function scheduleRespawn(session: MatchSession, target: MatchMember): void {
 
 const matchTimer = setInterval(() => matches.forEach(evaluateMatchEnd), 500);
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
     const token = socket.handshake.auth.token;
     if (!token) return next(new Error('Authentication error'));
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; username: string };
+        const account = await db.getUserWithStatsAndWallet(decoded.userId);
+        socket.data.inventory = normalizeInventory(account?.wallet?.inventory);
         socket.data.userId = decoded.userId;
         socket.data.username = decoded.username;
         next();
@@ -311,11 +336,12 @@ installRoomBrowser(io, startMatch, () => [...matches.values()].filter(session =>
 })), (socketId, userId) => matchmakingQueue.some(entry => entry.userId === userId) || socketMatches.has(socketId) || [...matches.values()].some(session => resolveMatchPhase(session.snapshot) !== 'ended' && session.snapshot.roster.some(member => member.userId === userId && member.connected)));
 
 io.on('connection', (socket: Socket) => {
-    socket.on('joinMatchmaking', (data: { mapId: string; vehicleId: string; weaponId: string; vehicleColor?: string }) => {
-        if (socket.data.waitingRoom || socketMatches.has(socket.id)) return;
+    socket.on('joinMatchmaking', (data: { mapId: string; vehicleId: string; weaponId: string; vehicleColor?: string; vehicleSkin?: string }) => {
+        if (data && !normalizeInventory(socket.data.inventory).skins.includes(normalizeVehicleSkin(data.vehicleSkin))) data.vehicleSkin = 'solid';
+        if (!validRoomLoadout(data) || socket.data.waitingRoom || socketMatches.has(socket.id)) return;
         const existingIndex = matchmakingQueue.findIndex(entry => entry.userId === socket.data.userId);
         if (existingIndex >= 0) matchmakingQueue.splice(existingIndex, 1);
-        matchmakingQueue.push({ socketId: socket.id, userId: socket.data.userId, username: socket.data.username, ...data });
+        matchmakingQueue.push({ ...data, socketId: socket.id, userId: socket.data.userId, username: socket.data.username });
         const sameMapCount = matchmakingQueue.filter(entry => entry.mapId === data.mapId).length;
         if (sameMapCount >= TDM_RULES.teamSize * 2) flushQueue(data.mapId);
         else scheduleQueueFlush(data.mapId);
@@ -326,7 +352,7 @@ io.on('connection', (socket: Socket) => {
         if (index >= 0) matchmakingQueue.splice(index, 1);
     });
 
-    socket.on('join', (data: { vehicleId: string; mapId: string; weaponId?: string; vehicleColor?: string; matchId?: string }) => {
+    socket.on('join', (data: { vehicleId: string; mapId: string; weaponId?: string; vehicleColor?: string; vehicleSkin?: string; matchId?: string }) => {
         const matchId = data.matchId ?? socketMatches.get(socket.id);
         const session = matchId ? matches.get(matchId) : undefined;
         const member = session?.snapshot.roster.find(candidate => candidate.entityId === socket.id);
@@ -334,10 +360,10 @@ io.on('connection', (socket: Socket) => {
         const vehicleId = member?.vehicleId ?? data.vehicleId;
         const weaponId = member?.weaponId ?? data.weaponId ?? 'minigun';
         const vehicleColor = member?.vehicleColor ?? data.vehicleColor;
-        const maxHealth = VEHICLE_HEALTH[vehicleId] ?? 600;
+        const maxHealth = session?.maxHealth.get(socket.id) ?? upgradedHealth(vehicleId, normalizeInventory(socket.data.inventory));
         players.set(socket.id, {
             id: socket.id, displayName: socket.data.username, teamId: member?.teamId,
-            vehicleId, weaponId, vehicleColor,
+            vehicleId, weaponId, vehicleColor, vehicleSkin: normalizeInventory(socket.data.inventory).skins.includes(normalizeVehicleSkin(member?.vehicleSkin ?? data.vehicleSkin)) ? normalizeVehicleSkin(member?.vehicleSkin ?? data.vehicleSkin) : 'solid',
             position: { x: spawn.x, y: spawn.y, z: spawn.z },
             rotation: { x: 0, y: Math.sin(spawn.yaw / 2), z: 0, w: Math.cos(spawn.yaw / 2) },
             health: maxHealth, maxHealth,
@@ -350,6 +376,14 @@ io.on('connection', (socket: Socket) => {
             socket.emit('matchSnapshot', snapshotFor(session));
             socket.to(session.snapshot.roomId).emit('playerJoined', players.get(socket.id));
         } else socket.emit('currentPlayers', {});
+    });
+
+    socket.on('arenaReady', () => {
+        const session = matches.get(socket.data.matchId);
+        if (!session || !players.has(socket.id) || !session.snapshot.roster.some(member => member.entityId === socket.id && member.connected)) return;
+        session.readyClients.add(socket.id);
+        beginReadyMatch(session);
+        socket.emit('matchSnapshot', snapshotFor(session));
     });
 
     socket.on('updateState', (state: Partial<PlayerState>) => {
@@ -410,7 +444,9 @@ io.on('connection', (socket: Socket) => {
         const health = session.health.get(target.entityId) ?? 0;
         if (health <= 0) return;
         if (Date.now() < (session.invulnerableUntil.get(target.entityId) ?? 0)) return;
-        const nextHealth = Math.max(0, health - data.damage);
+        const inventory = normalizeInventory(io.sockets.sockets.get(attacker.entityId)?.data.inventory);
+        const damage = data.damage * (data.weaponId === attacker.weaponId ? weaponMultiplier(attacker.weaponId, inventory) : 1);
+        const nextHealth = Math.max(0, health - damage);
         session.health.set(target.entityId, nextHealth);
         io.to(session.snapshot.roomId).emit('healthUpdate', { playerId: target.entityId, health: nextHealth });
         if (nextHealth > 0) return;
@@ -454,6 +490,7 @@ io.on('connection', (socket: Socket) => {
         if (session) {
             const member = session.snapshot.roster.find(candidate => candidate.entityId === socket.id);
             if (member) member.connected = false;
+            if (session.hostSocketId !== socket.id) beginReadyMatch(session);
             io.to(session.snapshot.roomId).emit('playerDisconnected', socket.id);
             emitSnapshot(session);
             if (session.hostSocketId === socket.id && session.snapshot.winner === null) {

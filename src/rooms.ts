@@ -1,3 +1,4 @@
+import { isVehicleSkin } from '../shared/skins';
 import type { Server, Socket } from 'socket.io';
 import type { RoomLoadout, RoomMembership, RoomReply, ServerRoom } from '../shared/rooms';
 import type { MatchmakingEntry } from './index';
@@ -11,7 +12,7 @@ const WEAPONS = new Set(['minigun', 'plasma', 'missile', 'mortar', 'nuke']);
 export function validRoomLoadout(data: unknown): data is RoomLoadout {
     if (!data || typeof data !== 'object') return false;
     const value = data as RoomLoadout;
-    return MAPS.has(value.mapId) && VEHICLES.has(value.vehicleId) && WEAPONS.has(value.weaponId) &&
+    return (value.vehicleSkin === undefined || isVehicleSkin(value.vehicleSkin)) && MAPS.has(value.mapId) && VEHICLES.has(value.vehicleId) && WEAPONS.has(value.weaponId) &&
         (value.vehicleColor === undefined || typeof value.vehicleColor === 'string' && /^#[\da-f]{6}$/i.test(value.vehicleColor));
 }
 

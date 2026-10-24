@@ -4,9 +4,9 @@ import { botInput, collideRacers, driveRacer } from './physics';
 import { RACE_ABILITY, RACE_RULES, RACE_WEAPONS, type RaceInput, type RacePickup, type Racer, type RaceShot, type RaceSnapshot, type RaceWeapon, type PickupType } from './types';
 export const NEUTRAL_INPUT: RaceInput = { throttle: 0, steer: 0, brake: true, fire: false, ability: false };
 
-export function createRacer(id: string, name: string, slot: number, bot: boolean, color = '#e4e4e7'): Racer {
+export function createRacer(id: string, name: string, slot: number, bot: boolean, color = '#e4e4e7', skin = 'solid'): Racer {
     const pose = trackPose(-10 - Math.floor(slot / 2) * 10, slot % 2 ? 4 : -4);
-    return { id, name, bot, connected: true, color, x: pose.x, z: pose.z, yaw: pose.yaw, vx: 0, vz: 0, health: RACE_RULES.health, weapon: null, ammo: 0, lap: 0, nextGate: 0, started: false, progress: -10 - slot * 5, finishedAt: null, place: null, respawnAt: 0, protectedUntil: 0, lastShot: 0, recovery: 0, lastAbility: 0, targetId: null, targetSince: 0, abilityTarget: null, abilityImpactAt: 0 };
+    return { id, name, bot, connected: true, color, skin, x: pose.x, z: pose.z, yaw: pose.yaw, vx: 0, vz: 0, health: RACE_RULES.health, weapon: null, ammo: 0, lap: 0, nextGate: 0, started: false, progress: -10 - slot * 5, finishedAt: null, place: null, respawnAt: 0, protectedUntil: 0, lastShot: 0, recovery: 0, lastAbility: 0, targetId: null, targetSince: 0, abilityTarget: null, abilityImpactAt: 0 };
 }
 export function createPickups(): RacePickup[] {
     const weapons = Object.keys(RACE_WEAPONS) as RaceWeapon[];
@@ -88,7 +88,7 @@ export function stepRace(state: RaceSnapshot, inputs: Map<string, RaceInput>, no
             const victim = findRaceTarget(car, state.racers, now, RACE_ABILITY.range);
             if (victim) { car.lastAbility = now; car.abilityTarget = victim.id; car.abilityImpactAt = now + RACE_ABILITY.windupMs; }
         }
-        const target = car.weapon && car.ammo > 0 ? findRaceTarget(car, state.racers, now, RACE_WEAPONS[car.weapon].range) : undefined;
+        const target = car.weapon && car.ammo > 0 ? findRaceTarget(car, state.racers, now, RACE_WEAPONS[car.weapon].range) : car.bot ? findRaceTarget(car, state.racers, now, RACE_ABILITY.range) : undefined;
         if (car.targetId !== (target?.id ?? null)) { car.targetId = target?.id ?? null; car.targetSince = now; }
         if (!input.fire || !car.weapon || car.ammo <= 0 || now - car.targetSince < 220) continue;
         const weapon = RACE_WEAPONS[car.weapon];

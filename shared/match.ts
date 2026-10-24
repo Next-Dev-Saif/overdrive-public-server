@@ -6,7 +6,8 @@ export type MatchPhase = 'intro' | 'countdown' | 'playing' | 'ended';
 export const TDM_RULES = {
     teamSize: 5,
     durationMs: 5 * 60 * 1000,
-    introMs: 4000,
+    introMs: 30000,
+    loadingTimeoutMs: 90000,
     countdownMs: 3000,
     scoreLimit: 25,
     respawnDelayMs: 3000,
@@ -15,6 +16,8 @@ export const TDM_RULES = {
 } as const;
 
 export interface MatchMember {
+    /** Server-computed armor health for this match. */
+    maxHealth?: number;
     entityId: string;
     userId?: string;
     displayName: string;
@@ -23,7 +26,7 @@ export interface MatchMember {
     slot: number;
     vehicleId: string;
     weaponId: string;
-    vehicleColor?: string;
+    vehicleColor?: string; vehicleSkin?: string;
     connected: boolean;
 }
 
@@ -33,6 +36,8 @@ export interface MatchSnapshot {
     mapId: string;
     phase: MatchPhase;
     startsAt: number;
+    loading?: boolean;
+    serverTime?: number;
     endsAt: number;
     scoreLimit: number;
     scores: Record<TeamId, number>;
@@ -88,7 +93,8 @@ export function getTeamSpawn(teamId: TeamId, slot: number, groundY: number): Spa
     };
 }
 
-export function resolveMatchPhase(snapshot: Pick<MatchSnapshot, 'startsAt' | 'endsAt' | 'winner'>, now = Date.now()): MatchPhase {
+export function resolveMatchPhase(snapshot: Pick<MatchSnapshot, 'startsAt' | 'endsAt' | 'winner' | 'loading'>, now = Date.now()): MatchPhase {
+    if (snapshot.loading && snapshot.winner === null) return 'intro';
     if (snapshot.winner !== null || now >= snapshot.endsAt) return 'ended';
     if (now >= snapshot.startsAt) return 'playing';
     if (now >= snapshot.startsAt - TDM_RULES.countdownMs) return 'countdown';

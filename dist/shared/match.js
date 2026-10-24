@@ -10,7 +10,8 @@ exports.TEAM_IDS = ['alpha', 'bravo'];
 exports.TDM_RULES = {
     teamSize: 5,
     durationMs: 5 * 60 * 1000,
-    introMs: 4000,
+    introMs: 30000,
+    loadingTimeoutMs: 90000,
     countdownMs: 3000,
     scoreLimit: 25,
     respawnDelayMs: 3000,
@@ -39,6 +40,8 @@ function getTeamSpawn(teamId, slot, groundY) {
     };
 }
 function resolveMatchPhase(snapshot, now = Date.now()) {
+    if (snapshot.loading && snapshot.winner === null)
+        return 'intro';
     if (snapshot.winner !== null || now >= snapshot.endsAt)
         return 'ended';
     if (now >= snapshot.startsAt)

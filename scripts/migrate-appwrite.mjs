@@ -241,7 +241,8 @@ async function setupSchema() {
     await ensureStringAttr(walletsId, 'userId', 64, true);
     await ensureIntegerAttr(walletsId, 'scrap', false, 0, 10000000, 0);
     await ensureIntegerAttr(walletsId, 'credits', false, 0, 10000000, 0);
-    await waitForAttributes(walletsId, ['userId', 'scrap', 'credits']);
+    await ensureStringAttr(walletsId, 'inventory', 8192, false, '{}');
+    await waitForAttributes(walletsId, ['userId', 'scrap', 'credits', 'inventory']);
     await ensureIndex(walletsId, 'idx_wallets_userId', DatabasesIndexType.Unique, ['userId']);
 
     // 4. Vehicles collection
@@ -354,6 +355,7 @@ async function migrateData() {
                     userId: w.userId,
                     scrap: Number(w.scrap ?? 0),
                     credits: Number(w.credits ?? 0),
+                    inventory: JSON.stringify(w.inventory || {}),
                 });
                 console.log(`  ✔ Migrated wallet for user: ${w.userId} (${w.scrap} scrap)`);
             } catch (err) {
