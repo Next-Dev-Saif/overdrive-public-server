@@ -1,5 +1,7 @@
+import { planBotLane, botTrafficBrake } from './botDriving';
 import { nearestTrack, normalizeAngle, ROAD_WIDTH, trackPose } from './track';
-import type { Racer, RaceInput } from './types';
+import { RACE_ABILITY, RACE_WEAPONS, type Racer, type RaceInput, type RacePickup } from './types';
+import { canTargetRacer } from './combat';
 
 /** Fixed-step road-constrained tire model with grade, progressive power and tire grip. Server owns position and impacts. */
 export function driveRacer(car: Racer, input: RaceInput, dt: number): number {
@@ -32,14 +34,28 @@ export function driveRacer(car: Racer, input: RaceInput, dt: number): number {
 }
 
 /** Look-ahead steering follows the road and brakes for upcoming curvature. */
-export function botInput(car: Racer, lane: number): RaceInput {
+export function botInput(car: Racer, lane: number, racers: Racer[] = [], now = 0, pickups: RacePickup[] = []): RaceInput {
     const road = nearestTrack(car), speed = Math.hypot(car.vx, car.vz);
-    const target = trackPose(road.along + 13 + speed * .45, lane);
+    const chosenLane = planBotLane(car, lane, racers, pickups, now);
+    const target = trackPose(road.along + 13 + speed * .45, chosenLane);
     const error = normalizeAngle(Math.atan2(target.x - car.x, target.z - car.z) - car.yaw);
     const ahead = trackPose(road.along + 38), current = trackPose(road.along);
     const bend = Math.abs(normalizeAngle(ahead.yaw - current.yaw));
-    const targetSpeed = bend > .6 ? 21 : bend > .3 ? 29 : 43;
-    return { throttle: 1, steer: Math.max(-1, Math.min(1, error * 2.4)), brake: speed > targetSpeed, fire: true, ability: true };
+    const farAhead = trackPose(road.along + 25 + speed * 1.3);
+    const futureBend = Math.max(bend, Math.abs(normalizeAngle(farAhead.yaw - current.yaw)));
+    const targetSpeed = Math.abs(error) > 1 ? 12 : futureBend > .6 ? 21 : futureBend > .3 ? 29 : 43;
+    const opponent = racers.find(other => other.id === car.targetId);
+    const stable = opponent !== undefined && now - car.targetSince >= 400;
+    const fire = stable && car.weapon !== null && car.ammo > 0 && canTargetRacer(car, opponent, now, RACE_WEAPONS[car.weapon].range);
+    const windup = RACE_ABILITY.windupMs / 1000;
+    const predictedDistance = opponent ? Math.hypot(opponent.x - car.x + (opponent.vx - car.vx) * windup,
+        opponent.z - car.z + (opponent.vz - car.vz) * windup) : Infinity;
+    // Reserve lightning for a stable close opportunity, not a fleeting range-edge pass.
+    const ability = stable && !car.abilityTarget && (!car.lastAbility || now - car.lastAbility >= RACE_ABILITY.cooldownMs) &&
+        predictedDistance < RACE_ABILITY.range * .85 && canTargetRacer(car, opponent, now, RACE_ABILITY.range * .8) &&
+        (car.ammo <= 0 || opponent.health <= RACE_ABILITY.damage || opponent.health > (car.weapon ? RACE_WEAPONS[car.weapon].damage : 0) || car.health < 200);
+    return { throttle: Math.abs(error) > 1.2 ? .45 : 1, steer: Math.max(-1, Math.min(1, error * 2.4)),
+        brake: speed > targetSpeed || botTrafficBrake(car, racers), fire, ability };
 }
 
 /** Equal-mass collision response keeps racers from passing through one another. */

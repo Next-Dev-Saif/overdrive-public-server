@@ -51,7 +51,7 @@ export function stepRace(state: RaceSnapshot, inputs: Map<string, RaceInput>, no
             Object.assign(car, { x: pose.x, z: pose.z, yaw: pose.yaw, vx: 0, vz: 0, health: RACE_RULES.health, protectedUntil: now + 2000, respawnAt: 0 });
         }
         const previous = { x: car.x, z: car.z };
-        const input = car.bot ? botInput(car, (i % 3 - 1) * 4) : (inputs.get(car.id) ?? NEUTRAL_INPUT);
+        const input = car.bot ? botInput(car, (i % 3 - 1) * 4, state.racers, now, state.pickups) : (inputs.get(car.id) ?? NEUTRAL_INPUT);
         car.health = Math.max(0, car.health - driveRacer(car, input, dt));
         if (car.health <= 0) { recoverRacer(car, now); continue; }
         crossCheckpoint(car, previous);
