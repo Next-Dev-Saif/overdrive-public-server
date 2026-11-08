@@ -78,7 +78,7 @@ function stepRace(state, inputs, now, dt) {
             Object.assign(car, { x: pose.x, z: pose.z, yaw: pose.yaw, vx: 0, vz: 0, health: types_1.RACE_RULES.health, protectedUntil: now + 2000, respawnAt: 0 });
         }
         const previous = { x: car.x, z: car.z };
-        const input = car.bot ? (0, physics_1.botInput)(car, (i % 3 - 1) * 4) : ((_a = inputs.get(car.id)) !== null && _a !== void 0 ? _a : exports.NEUTRAL_INPUT);
+        const input = car.bot ? (0, physics_1.botInput)(car, (i % 3 - 1) * 4, state.racers, now, state.pickups) : ((_a = inputs.get(car.id)) !== null && _a !== void 0 ? _a : exports.NEUTRAL_INPUT);
         car.health = Math.max(0, car.health - (0, physics_1.driveRacer)(car, input, dt));
         if (car.health <= 0) {
             recoverRacer(car, now);
